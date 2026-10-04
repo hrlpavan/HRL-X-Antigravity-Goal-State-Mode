@@ -2,12 +2,13 @@
 
 Implements the high-level policy π_high(g | s) for decomposing long-horizon
 goals into a Directed Acyclic Graph (DAG) of subgoals, managing option lifecycles,
-and enforcing bounded retry budgets before backtracking.
+enforcing bounded retry budgets before backtracking, and gating volatile actions.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
+import re
 from typing import List, Dict, Optional, Set
 
 
@@ -17,6 +18,24 @@ class OptionState(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     BACKTRACKED = "BACKTRACKED"
+
+
+class ActionVolatility(str, Enum):
+    """Volatility and risk classification for agent actions."""
+    LOW = "LOW"          # Standard file edits, compiles, tests -> Auto-Submit (0 prompts)
+    MEDIUM = "MEDIUM"    # Backtracking, branch checkouts -> Auto-Submit (0 prompts)
+    HIGH = "HIGH"        # Destructive deletions, drop table, force push -> Human Gate (1 prompt)
+
+
+# Volatile action signatures requiring interactive confirmation
+VOLATILE_PATTERNS = [
+    re.compile(r"\bdrop\s+(table|database|schema)\b", re.IGNORECASE),
+    re.compile(r"\btruncate\s+(table)?\b", re.IGNORECASE),
+    re.compile(r"\bdelete\s+from\s+\w+\s*(;|where\s+1\s*=\s*1|$)", re.IGNORECASE),
+    re.compile(r"\bgit\s+push\s+.*--force\b", re.IGNORECASE),
+    re.compile(r"\brm\s+-(rf|fr)\s+/(tmp|home|var|usr)?\s*$", re.IGNORECASE),
+    re.compile(r"\b(gcloud|aws|az)\s+.*delete\b", re.IGNORECASE),
+]
 
 
 @dataclass
@@ -43,84 +62,93 @@ class Subgoal:
 
         self.retry_count += 1
         if self.retry_count >= self.retry_budget:
-            self.state = OptionState.FAILED
+            self.state = OptionState.BACKTRACKED
             return False
 
-        self.state = OptionState.PENDING
+        self.state = OptionState.FAILED
         return False
 
+    def can_retry(self) -> bool:
+        return self.retry_count < self.retry_budget and self.state != OptionState.COMPLETED
 
+    def reset_for_backtrack(self) -> None:
+        self.retry_count = 0
+        self.state = OptionState.PENDING
+        self.state_delta = None
+
+
+@dataclass
 class TaskDAG:
-    """Directed Acyclic Graph of subgoals representing options."""
-
-    def __init__(self) -> None:
-        self.nodes: Dict[str, Subgoal] = {}
+    subgoals: Dict[str, Subgoal] = field(default_factory=dict)
 
     def add_subgoal(self, subgoal: Subgoal) -> None:
-        self.nodes[subgoal.id] = subgoal
+        self.subgoals[subgoal.id] = subgoal
 
     def get_ready_subgoals(self) -> List[Subgoal]:
-        """Returns subgoals whose dependencies are all COMPLETED and are currently PENDING."""
-        ready: List[Subgoal] = []
-        for sg in self.nodes.values():
-            if sg.state != OptionState.PENDING:
-                continue
-            deps_satisfied = all(
-                self.nodes.get(dep) is not None
-                and self.nodes[dep].state == OptionState.COMPLETED
-                for dep in sg.dependencies
-            )
-            if deps_satisfied:
-                ready.append(sg)
+        ready = []
+        for sg in self.subgoals.values():
+            if sg.state == OptionState.PENDING:
+                deps_satisfied = all(
+                    self.subgoals[d].state == OptionState.COMPLETED
+                    for d in sg.dependencies
+                    if d in self.subgoals
+                )
+                if deps_satisfied:
+                    ready.append(sg)
         return ready
 
-    def is_complete(self) -> bool:
-        return len(self.nodes) > 0 and all(
-            sg.state == OptionState.COMPLETED for sg in self.nodes.values()
-        )
+    def all_completed(self) -> bool:
+        return all(sg.state == OptionState.COMPLETED for sg in self.subgoals.values())
 
-    def has_failures(self) -> bool:
-        return any(sg.state == OptionState.FAILED for sg in self.nodes.values())
-
-    def topological_sort(self) -> List[str]:
-        """Returns topologically sorted list of subgoal IDs."""
-        in_degree: Dict[str, int] = {k: 0 for k in self.nodes}
-        adj: Dict[str, List[str]] = {k: [] for k in self.nodes}
-
-        for node_id, node in self.nodes.items():
-            for dep in node.dependencies:
-                if dep in adj:
-                    adj[dep].append(node_id)
-                    in_degree[node_id] += 1
-
-        queue = [k for k, deg in in_degree.items() if deg == 0]
-        order: List[str] = []
-
-        while queue:
-            curr = queue.pop(0)
-            order.append(curr)
-            for neighbor in adj[curr]:
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-
-        if len(order) != len(self.nodes):
-            raise ValueError("Cycle detected in TaskDAG specification!")
-
-        return order
+    def has_backtracked(self) -> bool:
+        return any(sg.state == OptionState.BACKTRACKED for sg in self.subgoals.values())
 
 
 class FeudalController:
-    """Meta-Controller managing long-horizon execution and backtracking."""
+    """Manager Tier: High-level policy orchestrating Task DAG and worker dispatch."""
 
-    def __init__(self, objective: str, dag: TaskDAG) -> None:
+    def __init__(self, objective: str, workspace: str):
         self.objective = objective
-        self.dag = dag
-        self.execution_history: List[Dict] = []
-        self.backtrack_count = 0
+        self.workspace = workspace
+        self.dag = TaskDAG()
+        self.history: List[Dict] = []
+        self.auto_submit_count: int = 0
+        self.volatile_prompt_count: int = 0
 
-    def get_next_option(self) -> Optional[Subgoal]:
-        """Retrieves next executable subgoal option."""
+    def assess_action_volatility(self, action_command: str) -> ActionVolatility:
+        """Classifies the volatility of a candidate action.
+
+        Returns HIGH if destructive patterns match (requiring human confirmation),
+        otherwise LOW or MEDIUM (eligible for Auto-Submit).
+        """
+        for pattern in VOLATILE_PATTERNS:
+            if pattern.search(action_command):
+                return ActionVolatility.HIGH
+        return ActionVolatility.LOW
+
+    def should_auto_submit(self, action_command: str) -> bool:
+        """Determines whether an action can proceed automatically without prompting."""
+        volatility = self.assess_action_volatility(action_command)
+        if volatility == ActionVolatility.HIGH:
+            self.volatile_prompt_count += 1
+            return False
+        self.auto_submit_count += 1
+        return True
+
+    def build_plan_from_spec(self, milestones: List[Dict]) -> None:
+        """Initializes the task DAG from structured milestone specifications."""
+        for m in milestones:
+            sg = Subgoal(
+                id=m["id"],
+                title=m["title"],
+                description=m["description"],
+                dependencies=m.get("dependencies", []),
+                retry_budget=m.get("retry_budget", 3),
+            )
+            self.dag.add_subgoal(sg)
+
+    def dispatch_next_option(self) -> Optional[Subgoal]:
+        """Selects the next runnable option from the DAG according to π_high."""
         ready = self.dag.get_ready_subgoals()
         if not ready:
             return None
@@ -128,40 +156,56 @@ class FeudalController:
         selected.state = OptionState.RUNNING
         return selected
 
-    def submit_option_result(
-        self, subgoal_id: str, success: bool, delta: Optional[Dict] = None
-    ) -> bool:
-        """Processes worker option completion."""
-        subgoal = self.dag.nodes.get(subgoal_id)
-        if not subgoal:
-            raise KeyError(f"Subgoal {subgoal_id} not found in DAG")
+    def handle_worker_result(self, subgoal_id: str, success: bool, delta: Optional[Dict] = None) -> Dict:
+        """Processes worker execution differential (Δs) and updates state."""
+        sg = self.dag.subgoals.get(subgoal_id)
+        if not sg:
+            return {"status": "ERROR", "message": f"Subgoal {subgoal_id} not found"}
 
-        passed = subgoal.record_attempt(success, delta)
-        self.execution_history.append(
-            {
-                "subgoal_id": subgoal_id,
-                "attempt": subgoal.retry_count,
-                "success": success,
-                "delta": delta,
+        ok = sg.record_attempt(success=success, delta=delta)
+        self.history.append({
+            "subgoal_id": subgoal_id,
+            "success": success,
+            "retry_count": sg.retry_count,
+            "state": sg.state.value,
+            "delta": delta,
+        })
+
+        if ok:
+            return {
+                "status": "CONTINUE",
+                "message": f"Subgoal {subgoal_id} completed successfully.",
+                "all_completed": self.dag.all_completed(),
             }
-        )
 
-        if not passed and subgoal.state == OptionState.FAILED:
-            self._trigger_backtrack(subgoal)
+        if sg.state == OptionState.BACKTRACKED:
+            return self.trigger_backtracking(subgoal_id)
 
-        return passed
+        return {
+            "status": "RETRY",
+            "message": f"Subgoal {subgoal_id} failed. Remaining retries: {sg.retry_budget - sg.retry_count}",
+            "retry_count": sg.retry_count,
+        }
 
-    def _trigger_backtrack(self, failed_subgoal: Subgoal) -> None:
-        """Backtracks failed option: resets dependent states and marks for replanning."""
-        self.backtrack_count += 1
-        failed_subgoal.state = OptionState.BACKTRACKED
+    def trigger_backtracking(self, failed_subgoal_id: str) -> Dict:
+        """Executes the credit assignment and backtracking protocol.
 
-        # Reset any dependent subgoals
-        for sg in self.dag.nodes.values():
-            if failed_subgoal.id in sg.dependencies:
-                sg.state = OptionState.PENDING
-                sg.retry_count = 0
+        Reverts changes associated with the failed branch and resets option state.
+        """
+        failed_sg = self.dag.subgoals[failed_subgoal_id]
+        rollback_files = []
+        if failed_sg.state_delta and "modified_files" in failed_sg.state_delta:
+            rollback_files = failed_sg.state_delta["modified_files"]
 
-    def is_goal_achieved(self) -> bool:
-        """Returns True if all subgoals in the DAG have successfully completed."""
-        return self.dag.is_complete()
+        # Reset the failed subgoal and dependents
+        failed_sg.reset_for_backtrack()
+        for sg in self.dag.subgoals.values():
+            if failed_subgoal_id in sg.dependencies and sg.state != OptionState.PENDING:
+                sg.reset_for_backtrack()
+
+        return {
+            "status": "BACKTRACK",
+            "message": f"Retry budget exhausted on {failed_subgoal_id}. Backtracking triggered.",
+            "rollback_targets": rollback_files,
+            "instruction": "Revert uncommitted modifications via git checkout and reformulate branch DAG.",
+        }

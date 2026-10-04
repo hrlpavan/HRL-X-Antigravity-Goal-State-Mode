@@ -29,57 +29,54 @@ This skill formalizes autonomous task execution in Google Antigravity using **Fe
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-| Component | Formal HRL Concept | Antigravity Runtime Implementation |
-| :--- | :--- | :--- |
-| **Meta-Controller** | High-level policy $\pi^{\text{high}}(g \mid s)$ | Primary agent constructing task dependency DAGs and milestones. |
-| **Option Policy** | Sub-policy $\pi_\omega(a \mid s)$ over option $\omega$ | Subagents (`invoke_subagent`) executing isolated file/command tasks. |
-| **State Compression** | Abstract state representation $\phi(s)$ | Subagents absorb noisy exploration logs; only compressed diff ($\Delta s$) enters main context. |
-| **Verification Oracle** | Termination condition $\beta(s) \in \{0, 1\}$ | Deterministic checks (exit code 0, 0 test failures, clean git status). |
-| **Credit Assignment** | Intrinsic penalty & replanning | Bounded local retry budget (3 attempts) before rolling back and reforming plan. |
-
 ---
 
 ## 2. Execution Protocol
 
-### Step 1: Feudal Decomposition (Meta-Controller)
-1. Parse workspace dependencies and construct a task DAG.
-2. Formulate explicit subgoals ($g_1, g_2, \dots, g_n$).
-3. Define the **Deterministic Verification Oracles $\beta(s)$** before mutating any file.
+### Step 1: Meta-Controller Formulation ($\pi_{\text{high}}$)
+1. Read the user's objective and inspect target directory structure.
+2. Build an explicit **Task Dependency Directed Acyclic Graph (DAG)**.
+3. Define 2 to 5 isolated subgoals ($g_1, g_2, \dots, g_n \in \mathcal{G}$).
+4. Assign a strict retry budget (default: 3) to each subgoal.
 
-### Step 2: Worker Sandboxing & Context Compression ($\Delta s$)
-1. Offload noisy code scans, package builds, and trial runs to isolated subagents (`invoke_subagent`).
-2. Do not pollute the primary conversation context with multi-page stdout/stderr logs.
-3. Bring only the resulting state transitions ($\Delta s$: modified files, passing status) back into the parent session.
+### Step 2: Worker Option Dispatch ($\pi_{\text{low}}$)
+1. Dispatch subgoals to dedicated subagents using `invoke_subagent`.
+2. Restrict each worker's scope strictly to its assigned option.
+3. The worker performs primitive tool actions (`replace_file_content`, `write_to_file`, `run_command`).
+4. The worker tests its own code before returning.
 
-### Step 3: Bounded Credit Assignment & Backtracking
-1. **Local Budget**: Maximum 3 local fix attempts per subgoal.
-2. **Backtrack Trigger**: If a subgoal is not achieved within 3 attempts, halt local patching.
-3. **Rollback**: Revert uncommitted changes on the invalid branch:
-   ```bash
-   git checkout -- <modified_files>
-   ```
-4. **Meta-Replanning**: Escalate to the Meta-Controller to pick an alternative implementation strategy.
+### Step 3: Context Compression ($\Delta s$)
+1. Workers MUST NOT return long raw execution logs or stack traces to the parent agent.
+2. Workers MUST return only the **State Differential ($\Delta s$)**:
+   - Files created or modified.
+   - Status (SUCCESS or FAILED).
+   - Brief 1-2 line summary of diff.
 
-### Step 4: Deterministic Oracle Verification ($\beta(s) = 1$)
-The task is **never** complete based on subjective LLM assessment. Completion requires $\beta(s) = 1$ across all four oracles:
+### Step 4: Bounded Credit Assignment & Backtracking
+1. If a worker succeeds, advance the DAG to the next ready subgoal.
+2. If a worker fails, decrement retry budget ($k \leftarrow k - 1$).
+3. **Trigger Backtracking when $k = 0$**:
+   - Do NOT continue local patching.
+   - Revert invalid modifications: `git checkout -- <modified_files>`.
+   - Log the architectural failure and formulate an alternative path in the DAG.
 
-1. **Oracle 1 (Build)**: Compilation/typecheck exits with code 0 (`tsc --noEmit`, `cargo check`, `go build`, etc.).
-2. **Oracle 2 (Tests)**: Test suite exits with code 0 and zero failures (`pytest`, `npm test`, etc.).
-3. **Oracle 3 (Lint & Formatting)**: Linters report 0 errors (`npm run lint`, `ruff check`, etc.).
-4. **Oracle 4 (Git State)**: Clean workspace without broken merges or conflicts:
-   ```bash
-   test -z "$(git status --porcelain)" || git diff --check
-   ```
+### Step 5: Deterministic Verification Oracles ($\beta(s) = 1$)
+Before declaring completion, run ALL verification oracles:
+- `Oracle 1 (Build)`: Verify compilation exits with code 0.
+- `Oracle 2 (Tests)`: Verify unit/integration tests pass with 0 failures.
+- `Oracle 3 (Lint)`: Verify linter and type-checker exit with 0 errors.
+- `Oracle 4 (Git State)`: Verify git diff is clean and formatted.
 
-### Step 5: Dual-Signal Completion Notification
-When all oracles evaluate to true ($\beta(s) = 1$):
-1. **Artifact Convergence**: Produce a concise markdown artifact summarizing the state changes.
-2. **OS Notification Signal**:
-   - macOS:
-     ```bash
-     osascript -e 'display notification "Goal State Reached Successfully!" with title "Antigravity Engine"' && printf '\a'
-     ```
-   - Linux:
-     ```bash
-     notify-send "Antigravity Engine" "Goal State Reached Successfully!" && printf '\a'
-     ```
+**Crucial Invariant**: If any oracle fails ($\beta(s) = 0$), the agent CANNOT stop. It must fix or backtrack.
+
+### Step 6: Auto-Submit vs. Volatile Action Safety Gating
+- **Auto-Submit (0 Prompts)**: Standard coding tasks (file edits, builds, tests, local commits) execute without asking the user to press Enter or submit.
+- **Interactive Human Gate (1 Prompt)**: If an action is HIGHLY VOLATILE (e.g., dropping DB tables, force-pushing to remote branches, cloud infrastructure destruction), the engine must pause and prompt for user confirmation.
+
+### Step 7: Dual-Signal Completion Notification
+When $\beta(s) = 1$ across all oracles:
+1. Generate the final completion markdown artifact.
+2. Sound system audio bell: `printf '\a'`.
+3. Dispatch OS desktop notification:
+   - macOS: `osascript -e 'display notification "Goal Reached!" with title "Antigravity Engine"'`
+   - Linux: `notify-send "Antigravity Engine" "Goal Reached!"`

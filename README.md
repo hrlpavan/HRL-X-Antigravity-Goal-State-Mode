@@ -163,6 +163,13 @@ Where:
 Unlike conversational agents that terminate on linguistic tokens, Antigravity Goal State Mode terminates if and only if the verification oracle yields unity:
 $$\beta(s) = \prod_{i=1}^{K} \mathbb{I}(\text{exit\_code}(\text{Oracle}_i) == 0)$$
 
+### 4. Auto-Submit vs. Volatile Action Gating
+To maximize velocity without compromising safety:
+$$\text{Prompts}(a) = \begin{cases} 0 & \text{if } \mathcal{V}(a) \in \{\text{LOW}, \text{MEDIUM}\} \quad \text{(Auto-Submit: 0 prompts)} \\ 1 & \text{if } \mathcal{V}(a) == \text{HIGH} \quad \text{(Human Gate: 1 prompt)} \end{cases}$$
+- **Simple / Standard Tasks**: Auto-Submit executed without prompting (zero Enter keypresses).
+- **High-Volatility Actions**: Pauses for explicit user confirmation only on destructive actions (`DROP TABLE`, `git push --force`, cloud resource destruction).
+
+
 ---
 
 ## 🤝 Repositories & Sync

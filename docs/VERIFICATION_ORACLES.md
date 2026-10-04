@@ -1,6 +1,6 @@
 # Deterministic Verification Oracles Guide (β(s) = 1)
 
-In Feudal HRL, the agent's termination condition $\beta(s)$ cannot rely on autoregressive language tokens like *"I believe I have met all requirements."* Such self-reporting frequently hallucinates completion.
+In Feudal HRL, the agent's termination condition $\beta(s)$ cannot rely on autoregressive language tokens like *\"I believe I have met all requirements.\"* Such self-reporting frequently hallucinates completion.
 
 Instead, the **HRL X Antigravity Goal State Engine** delegates completion decisions to an array of **Deterministic Verification Oracles**.
 
@@ -30,7 +30,7 @@ $$\beta(s) = \bigwedge_{i=1}^{K} v_i = \prod_{i=1}^{K} v_i \in \{0, 1\}$$
 | **Oracle 1** | Build / Compilation | Validates structural integrity, AST validity, and typing. | `npm run build`<br>`cargo check`<br>`tsc --noEmit`<br>`go build ./...` |
 | **Oracle 2** | Test Suites | Validates functional correctness and regression invariants. | `pytest tests/`<br>`npm test`<br>`go test -v ./...`<br>`cargo test` |
 | **Oracle 3** | Lint & Style | Validates maintainability, code style, and security lints. | `npm run lint`<br>`ruff check .`<br>`flake8`<br>`golangci-lint run` |
-| **Oracle 4** | Git Cleanliness | Ensures clean workspace, zero merge artifacts, no git diff errors. | `git diff --check`<br>`test -z "$(git status --porcelain)"` |
+| **Oracle 4** | Git Cleanliness | Ensures clean workspace, zero merge artifacts, no git diff errors. | `git diff --check`<br>`test -z \"$(git status --porcelain)\"` |
 
 ---
 
@@ -111,7 +111,7 @@ python3 benchmarks/check_latency.py --max-p99-ms 15
 ### 2. Dependency Budget Oracle
 Ensures no unauthorized dependencies were added:
 ```bash
-test $(git diff package.json | grep '+   "' | wc -l) -eq 0
+test $(git diff package.json | grep '+   \"' | wc -l) -eq 0
 ```
 
 ### 3. Coverage Threshold Oracle

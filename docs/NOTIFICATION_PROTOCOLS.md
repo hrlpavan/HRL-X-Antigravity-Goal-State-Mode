@@ -12,9 +12,9 @@ The **HRL X Antigravity Goal State Engine** enforces a **Dual-Signal Protocol**:
 
 | Platform | Visual Signal Command | Audio Signal Command |
 | :--- | :--- | :--- |
-| **macOS** | `osascript -e 'display notification "Goal State Reached!" with title "Antigravity Engine"'` | `printf '\a'` or `afplay /System/Library/Sounds/Glass.aiff` |
-| **Linux (X11 / Wayland)** | `notify-send "Antigravity Engine" "Goal State Reached!"` | `printf '\a'` or `paplay /usr/share/sounds/freedesktop/stereo/complete.oga` |
-| **Windows (WSL2 / PowerShell)** | `powershell.exe -Command "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]..."` | `powershell.exe -Command "[console]::beep(800, 300)"` |
+| **macOS** | `osascript -e 'display notification \"Goal State Reached!\" with title \"Antigravity Engine\"'` | `printf '\a'` or `afplay /System/Library/Sounds/Glass.aiff` |
+| **Linux (X11 / Wayland)** | `notify-send \"Antigravity Engine\" \"Goal State Reached!\"` | `printf '\a'` or `paplay /usr/share/sounds/freedesktop/stereo/complete.oga` |
+| **Windows (WSL2 / PowerShell)** | `powershell.exe -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]...\"` | `powershell.exe -Command \"[console]::beep(800, 300)\"` |
 
 ---
 
@@ -26,25 +26,25 @@ The repository bundles a portable cross-platform dispatcher at `scripts/notify_c
 #!/usr/bin/env bash
 set -euo pipefail
 
-TASK_NAME="${1:-Autonomous Task}"
+TASK_NAME=\"${1:-Autonomous Task}\"
 
-echo ">>> Emitting Dual-Signal Alert for: ${TASK_NAME}"
+echo \">>> Emitting Dual-Signal Alert for: ${TASK_NAME}\"
 
 # 1. Audible Terminal Bell
 printf '\a'
 
 # 2. Platform-Specific Desktop IPC
-if [[ "$OSTYPE" == "darwin"* ]]; then
+if [[ \"$OSTYPE\" == \"darwin\"* ]]; then
   # macOS
-  osascript -e "display notification \"${TASK_NAME} completed successfully with β(s) = 1!\" with title \"Antigravity Engine\" sound name \"Glass\"" 2>/dev/null || true
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  osascript -e \"display notification \\\"${TASK_NAME} completed successfully with β(s) = 1!\\\" with title \\\"Antigravity Engine\\\" sound name \\\"Glass\\\"\" 2>/dev/null || true
+elif [[ \"$OSTYPE\" == \"linux-gnu\"* ]]; then
   # Linux
   if command -v notify-send >/dev/null 2>&1; then
-    notify-send "Antigravity Engine" "${TASK_NAME} completed successfully!" --urgency=normal || true
+    notify-send \"Antigravity Engine\" \"${TASK_NAME} completed successfully!\" --urgency=normal || true
   fi
 fi
 
-echo ">>> Notification dispatched."
+echo \">>> Notification dispatched.\"
 ```
 
 ---
@@ -59,6 +59,6 @@ If you are running Antigravity on a headless server or cloud VM, you can dispatc
 ### Example Webhook Command
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"text":"🚀 Antigravity Autonomous Goal State Reached: All oracles passed β(s) = 1."}' \
+  -d '{\"text\":\"🚀 Antigravity Autonomous Goal State Reached: All oracles passed β(s) = 1.\"}' \
   https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 ```

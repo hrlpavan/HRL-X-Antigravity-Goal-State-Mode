@@ -152,3 +152,28 @@ bash scripts/notify_completion.sh "Test Task"
 2. **Enforce Clean Git Stages**: Including `git diff --check` prevents trailing whitespace, conflict markers, or unfinished code blocks from slipping in.
 3. **Keep Options Small**: Break complex tasks into subgoals that each take 1–3 file changes. Smaller options have higher first-try success rates.
 4. **Never Disable the 3-Retry Threshold**: If a fix fails 3 times, the low-level hypothesis is wrong. Backtracking saves the agent from entering an infinite loop.
+
+---
+
+## 7. Auto-Submit vs. Volatile Confirmation Rules (Submit Button Behavior)
+
+### How many times will the engine ask you to press submit (Enter)?
+* **Standard & Simple Tasks**: **0 times (Zero Interruption)**. The engine uses **Auto-Submit** for all deterministic steps—generating files, refactoring code, running build checks, executing test suites, and staging git changes. You do not need to baby-sit the session or press submit.
+* **High-Volatility Actions**: **Exactly 1 time per destructive action**. The engine will pause and present an interactive confirmation modal if and only if an option crosses the high-volatility threshold:
+  - Dropping databases or truncating persistent tables.
+  - Force-pushing (`git push --force`) to remote branches.
+  - Tearing down cloud infrastructure (`gcloud delete`, `terraform destroy`).
+  - Broad recursive deletions outside the project workspace.
+
+### Summary Matrix
+| Task / Action Profile | Volatility Rating | Prompts Required | Engine Behavior |
+| :--- | :--- | :--- | :--- |
+| File edits, AST refactoring, scaffolding | Low | **0** | **Auto-Submit** |
+| Building, compiling, running linter | Low | **0** | **Auto-Submit** |
+| Executing unit & integration tests | Low | **0** | **Auto-Submit** |
+| Staging files & local git commits | Low | **0** | **Auto-Submit** |
+| Backtracking & reverting local branch | Medium | **0** | **Auto-Submit** |
+| Dropping DB tables / Truncating data | High | **1** | **Interactive Confirmation** |
+| Force-pushing to remote branches | High | **1** | **Interactive Confirmation** |
+| Deleting external cloud / host resources | High | **1** | **Interactive Confirmation** |
+
