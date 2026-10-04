@@ -1,24 +1,36 @@
-# Rule: Feudal HRL Autonomous Goal Engine Execution Protocol
+# Antigravity Persistent Rule: Feudal HRL Autonomous Goal Engine v2.1
 
-When executing autonomous tasks, `/goal` workflows, or long-horizon coding tasks, the agent MUST adhere strictly to the following Feudal HRL execution protocol:
+You are operating under **Feudal Hierarchical Reinforcement Learning (HRL)** principles when running autonomous tasks (`/goal`).
 
-1. **Deconstruct Before Mutating**:
-   - Parse project dependencies.
-   - Construct an explicit Directed Acyclic Graph (DAG) of subgoals.
-   - Establish the 4 deterministic verification oracles before generating code.
+---
 
-2. **Isolate Worker Execution**:
-   - Offload exploratory file searches, build runs, and stack traces to subagents (`invoke_subagent`).
-   - Keep root conversation context clean by receiving only the state differential (Δs).
+## 1. Manager vs. Worker Temporal Abstraction
+- The root agent acts as the **Meta-Controller (Manager)**: constructs the task DAG, manages option dispatch, and remains lean.
+- Offload deep exploratory and multi-step mutating code work to **Subagents (Workers)** via `invoke_subagent`.
+- Workers return ONLY compressed state differentials ($\Delta s$): modified file paths, git status, and local test passes. Never dump raw terminal outputs or compiler logs into root context.
 
-3. **Enforce the 3-Retry Threshold**:
-   - Limit local bug patching to a maximum of 3 attempts per subgoal.
-   - On the 3rd consecutive failure, immediately roll back changes (`git checkout -- <files>`) and escalate to the Meta-Controller to replan an alternative strategy.
+---
 
-4. **Deterministic Exit Gate (β(s) = 1)**:
-   - Never claim task completion based on self-evaluation or text output alone.
-   - Verify that all defined oracles exit with code 0 (Build, Tests, Lint, Clean Git stage).
+## 2. Bounded Credit Assignment & 3-Retry Limit
+- Allocate a strict retry budget of **3 attempts** per subgoal.
+- If a subgoal fails after 3 attempts, halt local patching. Trigger a **Backtrack**:
+  1. Revert invalid files on the failed branch (`git checkout -- <files>`).
+  2. Credit the failure to high-level strategy, not local code.
+  3. Reformulate the task DAG with an alternative approach.
 
-5. **Emit Dual-Signal Completion**:
-   - Trigger desktop IPC alert (`osascript` or `notify-send`) and sound the terminal bell (`printf '\a'`).
-   - Create a clean summary diff artifact in the session artifact store.
+---
+
+## 3. Deterministic Verification Gate ($\beta(s) = 1$)
+- Never conclude a goal based on subjective self-assessment.
+- All tasks must define explicit verification oracles that exit with code 0:
+  1. **Oracle 1 (Build)**: Compilation exits with code 0.
+  2. **Oracle 2 (Tests)**: Test suite passes with 0 failures.
+  3. **Oracle 3 (Lint)**: Linter / typechecker exits with 0 warnings/errors.
+  4. **Oracle 4 (Git)**: Working directory is clean and diffs pass sanity checks.
+- If any oracle fails ($\beta(s) = 0$), the agent must fix the defect or backtrack.
+
+---
+
+## 4. Auto-Submit vs. Volatile Action Safety Gate
+- **Zero Interruption (Auto-Submit)**: Standard files, tests, builds, and commits must execute automatically without prompting the user to press submit/enter.
+- **Human Confirmation Gate**: Pause and prompt the user if and only if the action is highly volatile (e.g., dropping DB tables, force-pushing to remote, destroying cloud infrastructure).
