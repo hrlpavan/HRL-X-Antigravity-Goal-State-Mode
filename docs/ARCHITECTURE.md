@@ -147,3 +147,28 @@ Upon satisfying $\beta(s) = 1$, the agent triggers a non-blocking dual-signal co
 1. **Visual / Desktop IPC**: Dispatches an OS desktop alert (`osascript` on macOS, `notify-send` on Linux).
 2. **Auditory Signal**: Emits an audible terminal ASCII bell (`printf '\a'`).
 3. **Artifact Convergence**: Emits a structured summary markdown artifact in Antigravity's persistent artifact storage.
+
+---
+
+## 8. Volatile-Action Gating Policy & Auto-Submit Protocol
+
+A critical requirement for autonomous operations is balancing velocity with safety: **How many times must the human press Submit/Enter?**
+
+$$\text{Prompts}(a) = \begin{cases} 0 & \text{if } \mathcal{V}(a) \in \{\text{LOW}, \text{MEDIUM}\} \quad \text{(Auto-Submit)} \\ 1 & \text{if } \mathcal{V}(a) == \text{HIGH} \quad \text{(Interactive Human Gate)} \end{cases}$$
+
+### 8.1 The Zero-Interruption Rule for Standard Tasks (Auto-Submit)
+For deterministic, non-destructive actions, the agent **never halts to ask the user to press submit**:
+- Creating/editing project files (`write_to_file`, `replace_file_content`).
+- Running local compilations, linters, or typecheckers (`tsc`, `py_compile`, `cargo check`).
+- Executing local unit or integration tests (`pytest`, `npm test`).
+- Making local git commits or switching development feature branches.
+*Total prompts incurred: **0**.*
+
+### 8.2 The High-Volatility Boundary ($\mathcal{V}(a) == \text{HIGH}$)
+Execution pauses and prompts the user for explicit confirmation **only** if the action violates the volatility safety boundary:
+1. **Irreversible Data Destruction**: `DROP TABLE`, `DROP DATABASE`, `TRUNCATE`, broad `DELETE FROM` without constraints.
+2. **Remote History Disruption**: `git push --force` or force-deleting branches on protected remotes (`main`, `master`, `prod`).
+3. **Destructive Cloud Deletions**: Deleting cloud projects, databases, storage buckets (`gsutil rm -r`), or KMS encryption keys.
+4. **Permanent File Obliteration Outside Workspace**: Executing broad `rm -rf /` or recursive deletions targeting home/root directories.
+
+Under this policy, simple projects run end-to-end with **0 manual submit prompts**, while destructive changes are guarded behind an ironclad confirmation gate.
